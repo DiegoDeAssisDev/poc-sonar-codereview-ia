@@ -42,7 +42,7 @@ async function runReview() {
   - Performance (evitar builds desnecessários, const constructors).
 
   Responda APENAS com um objeto JSON no seguinte formato:
-  [
+  feedback: [
     {
       "file": "caminho/do/arquivo.js",
       "line": 10,
@@ -70,7 +70,7 @@ async function runReview() {
 
     console.log("Result: ", result.Result);
 
-    const comments = Array.isArray(result['Result']['feedback']) ? result['Result']['feedback'] : Array.isArray(result['Result']['review']) ? result['Result']['review'] : [];
+    const comments = Array.isArray(result['Result']['feedback']) ? result['Result']['feedback'] : [];
 
     console.log("Comments: ", comments);
 
