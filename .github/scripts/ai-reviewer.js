@@ -29,7 +29,7 @@ async function runReview() {
     return;
   }
 
-  console.log("Diff: ", diff);
+  // console.log("Diff: ", diff);
 
   const prompt = `
   Você é um Desenvolvedor Senior Flutter e revisor de código Dart experiente.
@@ -64,13 +64,13 @@ async function runReview() {
       response_format: { type: "json_object" }
     });
 
-    console.log("Completion: ", completion);
+    // console.log("Completion: ", completion);
 
     const result = JSON.parse(completion.choices[0].message.content);
 
     console.log("Result: ", result);
 
-    const comments = Array.isArray(result.Result.feedback) ? result.Result.feedback : [];
+    const comments = Array.isArray(result['Result']['feedback']) ? result['Result']['feedback'] : Array.isArray(result['Result']['review']) ? result['Result']['review'] : [];
 
     console.log("Comments: ", comments);
 
