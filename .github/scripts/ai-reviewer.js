@@ -29,6 +29,8 @@ async function runReview() {
     return;
   }
 
+  console.log("Diff: ", diff);
+
   const prompt = `
   Você é um Desenvolvedor Senior Flutter e revisor de código Dart experiente.
   Analise o seguinte Diff do Git de uma Pull Request e sugira melhorias.
@@ -62,8 +64,15 @@ async function runReview() {
       response_format: { type: "json_object" }
     });
 
+    console.log("Completion: ", completion);
+
     const result = JSON.parse(completion.choices[0].message.content);
+
+    console.log("Result: ", result);
+
     const comments = Array.isArray(result) ? result : result.comments || [];
+
+    console.log("Comments: ", comments);
 
     if (comments.length === 0) {
       console.log("IA não encontrou problemas significativos.");
