@@ -68,7 +68,7 @@ async function runReview() {
 
     const result = JSON.parse(completion.choices[0].message.content);
 
-    console.log("Result: ", result);
+    console.log("Result: ", result.Result);
 
     const comments = Array.isArray(result['Result']['feedback']) ? result['Result']['feedback'] : Array.isArray(result['Result']['review']) ? result['Result']['review'] : [];
 
