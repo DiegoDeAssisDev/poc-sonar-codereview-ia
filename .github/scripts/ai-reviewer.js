@@ -4,6 +4,7 @@ const exec = require("child_process").execSync;
 
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+
 const [owner, repo] = process.env.GITHUB_REPOSITORY.split("/");
 const pull_number = Number(process.env.GITHUB_REF.split("/")[2]);
 
@@ -21,84 +22,108 @@ async function getDiff() {
 }
 
 async function runReview() {
-  console.log(`Iniciando revisão para a PR #${pull_number} em ${owner}/${repo}`);
+  console.log(`Iniciando revisão para PR #${pull_number}`);
 
   const diff = await getDiff();
-  if (!diff) {
-    console.log("Nenhuma alteração encontrada para revisão.");
+
+  if (!diff || diff.trim().length === 0) {
+    console.log("Nenhuma alteração encontrada.");
     return;
   }
 
-  // console.log("Diff: ", diff);
-
   const prompt = `
-  Você é um Desenvolvedor Senior Flutter e revisor de código Dart experiente.
-  Analise o seguinte Diff do Git de uma Pull Request e sugira melhorias.
-  
-  Foque em:
-  - Bugs óbvios ou problemas de segurança em Dart/Flutter.
-  - Melhores práticas de Flutter (Stateless vs Stateful, uso de BuildContext, etc).
-  - Clean Code, legibilidade e padrões de projeto (Provider, Bloc, GetX, etc).
-  - Performance (evitar builds desnecessários, const constructors).
+Você é um Desenvolvedor Senior Flutter e revisor de código Dart experiente.
 
-  Responda APENAS com um objeto JSON no seguinte formato:
-  feedback: [
+Analise o seguinte diff de uma Pull Request e sugira melhorias.
+
+Foque em:
+- Bugs e problemas de segurança
+- Boas práticas Flutter/Dart
+- Clean Code
+- Performance
+
+Responda APENAS com JSON válido no formato:
+
+{
+  "feedback": [
     {
-      "file": "caminho/do/arquivo.js",
+      "file": "caminho/do/arquivo.dart",
       "line": 10,
-      "message": "Sugestão de comentário aqui."
+      "message": "Comentário aqui"
     }
   ]
+}
 
-  Git Diff:
-  ${diff}
-  `;
+Se não houver problemas, retorne:
+
+{
+  "feedback": []
+}
+
+Git diff:
+${diff}
+`;
 
   try {
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: "gpt-4o-mini",
       messages: [
-        { role: "system", content: "Você é um revisor de código técnico muito preciso que responde em português e no formato JSON solicitado." },
-        { role: "user", content: prompt }
+        {
+          role: "system",
+          content:
+            "Você é um revisor técnico preciso. Sempre responde em JSON válido sem texto adicional."
+        },
+        {
+          role: "user",
+          content: prompt
+        }
       ],
       response_format: { type: "json_object" }
     });
 
-    // console.log("Completion: ", completion);
+    const raw = completion.choices[0].message.content;
 
-    const result = JSON.parse(completion.choices[0].message.content);
-
-    console.log("Result: ", result.Result);
-
-    const comments = Array.isArray(result['Result']['feedback']) ? result['Result']['feedback'] : [];
-
-    console.log("Comments: ", comments);
-
-    if (comments.length === 0) {
-      console.log("IA não encontrou problemas significativos.");
+    let result;
+    try {
+      result = JSON.parse(raw);
+    } catch (e) {
+      console.error("❌ Erro ao parsear resposta da IA:", raw);
       return;
     }
 
-    console.log(`IA sugeriu ${comments.length} comentários.`);
+    console.log("Result:", result);
 
-    // Em uma POC real, postaríamos os comentários via octokit.pulls.createReview
-    // Mas para simplificar a visualização inicial, vamos postar um comentário geral
-    let summaryMessage = "### 🤖 AI Code Review Summary\n\n";
+    const comments = Array.isArray(result.feedback)
+      ? result.feedback.map(c => ({
+        file: c.file || "unknown",
+        line: c.line || 0,
+        message: c.message || "Sem mensagem"
+      }))
+      : [];
+
+    if (comments.length === 0) {
+      console.log("✅ IA não encontrou problemas.");
+      return;
+    }
+
+    console.log(`⚠️ IA encontrou ${comments.length} problemas`);
+
+    let summary = "### 🤖 AI Code Review\n\n";
+
     comments.forEach(c => {
-      summaryMessage += `- **${c.file}:${c.line}**: ${c.message}\n`;
+      summary += `- **${c.file}:${c.line}** → ${c.message}\n`;
     });
 
     await octokit.issues.createComment({
       owner,
       repo,
       issue_number: pull_number,
-      body: summaryMessage
+      body: summary
     });
 
-    console.log("Resumo da revisão postado no GitHub.");
-
+    console.log("✅ Comentário postado no PR");
   } catch (error) {
-    console.error("Erro no processamento da IA:", error);
+    console.error("❌ Erro na execução:", error);
   }
 }
 
