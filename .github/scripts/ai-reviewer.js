@@ -70,7 +70,7 @@ async function runReview() {
 
     console.log("Result: ", result);
 
-    const comments = Array.isArray(result) ? result : result.comments || [];
+    const comments = Array.isArray(result.Result.feedback) ? result.Result.feedback : [];
 
     console.log("Comments: ", comments);
 
