@@ -16,13 +16,13 @@ async function getDiff() {
   try {
     return exec(`git diff origin/${baseRef}...HEAD`, { encoding: "utf8" });
   } catch (error) {
-    console.error(`Erro ao pegar o diff contra ${baseRef}:`, error);
+    console.error(`Erro ao pegar diff:`, error);
     return "";
   }
 }
 
 async function runReview() {
-  console.log(`Iniciando revisão para PR #${pull_number}`);
+  console.log(`🚀 Review PR #${pull_number}`);
 
   const diff = await getDiff();
 
@@ -32,35 +32,26 @@ async function runReview() {
   }
 
   const prompt = `
-Você é um Desenvolvedor Senior Flutter e revisor de código Dart experiente.
+Você é um Desenvolvedor Senior Flutter.
 
-Analise o seguinte diff de uma Pull Request e sugira melhorias.
+Analise o diff abaixo e gere sugestões.
 
-Foque em:
-- Bugs e problemas de segurança
-- Boas práticas Flutter/Dart
-- Clean Code
-- Performance
-
-Responda APENAS com JSON válido no formato:
+Responda APENAS com JSON válido:
 
 {
   "feedback": [
     {
-      "file": "caminho/do/arquivo.dart",
+      "file": "lib/arquivo.dart",
       "line": 10,
-      "message": "Comentário aqui"
+      "message": "comentário"
     }
   ]
 }
 
-Se não houver problemas, retorne:
+Se não houver problemas:
+{ "feedback": [] }
 
-{
-  "feedback": []
-}
-
-Git diff:
+Diff:
 ${diff}
 `;
 
@@ -71,12 +62,9 @@ ${diff}
         {
           role: "system",
           content:
-            "Você é um revisor técnico preciso. Sempre responde em JSON válido sem texto adicional."
+            "Você responde apenas JSON válido e nunca adiciona texto fora do JSON."
         },
-        {
-          role: "user",
-          content: prompt
-        }
+        { role: "user", content: prompt }
       ],
       response_format: { type: "json_object" }
     });
@@ -87,27 +75,28 @@ ${diff}
     try {
       result = JSON.parse(raw);
     } catch (e) {
-      console.error("❌ Erro ao parsear resposta da IA:", raw);
+      console.error("Erro parse JSON:", raw);
       return;
     }
 
-    console.log("Result:", result);
-
     const comments = Array.isArray(result.feedback)
       ? result.feedback.map(c => ({
-        file: c.file || "unknown",
-        line: c.line || 0,
+        file: (c.file || "").replace("./", ""),
+        line: c.line || 1,
         message: c.message || "Sem mensagem"
       }))
       : [];
 
     if (comments.length === 0) {
-      console.log("✅ IA não encontrou problemas.");
+      console.log("✅ Nenhum problema encontrado.");
       return;
     }
 
-    console.log(`⚠️ IA encontrou ${comments.length} problemas`);
+    console.log(`⚠️ ${comments.length} comentários encontrados`);
 
+    // =========================
+    // 💬 1. COMENTÁRIO GERAL
+    // =========================
     let summary = "### 🤖 AI Code Review\n\n";
 
     comments.forEach(c => {
@@ -121,9 +110,34 @@ ${diff}
       body: summary
     });
 
-    console.log("✅ Comentário postado no PR");
+    console.log("✅ Comentário geral enviado");
+
+    // =========================
+    // 📍 2. COMENTÁRIOS INLINE
+    // =========================
+    const reviewComments = comments
+      .filter(c => c.file && c.line)
+      .map(c => ({
+        path: c.file,
+        line: c.line,
+        side: "RIGHT",
+        body: `🤖 ${c.message}`
+      }));
+
+    if (reviewComments.length > 0) {
+      await octokit.pulls.createReview({
+        owner,
+        repo,
+        pull_number,
+        event: "COMMENT",
+        comments: reviewComments
+      });
+
+      console.log("✅ Comentários inline enviados");
+    }
+
   } catch (error) {
-    console.error("❌ Erro na execução:", error);
+    console.error("Erro geral:", error);
   }
 }
 
