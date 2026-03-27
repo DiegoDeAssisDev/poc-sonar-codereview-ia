@@ -4,6 +4,7 @@ const exec = require("child_process").execSync;
 
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+
 const [owner, repo] = process.env.GITHUB_REPOSITORY.split("/");
 const pull_number = Number(process.env.GITHUB_REF.split("/")[2]);
 
@@ -21,75 +22,109 @@ async function getDiff() {
 }
 
 async function runReview() {
-  console.log(`Iniciando revisão para a PR #${pull_number} em ${owner}/${repo}`);
+  console.log(`🚀 Iniciando Agente de Qualidade (Revisão) para PR #${pull_number} em ${owner}/${repo}`);
 
   const diff = await getDiff();
-  if (!diff) {
+  if (!diff || diff.trim().length === 0) {
     console.log("Nenhuma alteração encontrada para revisão.");
     return;
   }
 
   const prompt = `
-  Você é um Desenvolvedor Senior Flutter e revisor de código Dart experiente.
-  Analise o seguinte Diff do Git de uma Pull Request e sugira melhorias.
-  
-  Foque em:
-  - Bugs óbvios ou problemas de segurança em Dart/Flutter.
-  - Melhores práticas de Flutter (Stateless vs Stateful, uso de BuildContext, etc).
-  - Clean Code, legibilidade e padrões de projeto (Provider, Bloc, GetX, etc).
-  - Performance (evitar builds desnecessários, const constructors).
+Você é o "Agente de Qualidade" Senior Especialista em Flutter.
+Sua missão é gerar sugestões práticas no código e processar as correções com perfeição técnica.
+Analise o git diff abaixo (no formato Unified Diff).
 
-  Responda APENAS com um objeto JSON no seguinte formato:
-  [
+# REGRA PARA PRECISÃO DE NÚMERO DE LINHAS:
+Siga estritamente esta contagem para não comentar fora do lugar:
+1. Use o cabeçalho \`@@ -old,count +new,count @@\` ACIMA do bloco problemático.
+2. A linha inicial é o valor de \`new_start\` (ex: \`@@ -10,3 +15,4 @@\`, a base é 15).
+3. Conte as linhas (apenas \` \` e \`+\`) até o erro. Ignore \`-\`. 
+4. Number = base + quantidade de linhas válidas puladas.
+
+Formato OBRIGATÓRIO (JSON):
+{
+  "feedback": [
     {
-      "file": "caminho/do/arquivo.js",
-      "line": 10,
-      "message": "Sugestão de comentário aqui."
+      "file": "lib/teste.dart",
+      "line": 45,
+      "message": "Explicação técnica do porquê o código precisa melhorar (ex: Null Pointer, Tipo Incorreto).\\n\\n\`\`\`suggestion\\n// APENAS CÓDIGO CORRIGIDO AQUI.\\n\`\`\`"
     }
   ]
+}
 
-  Git Diff:
-  ${diff}
-  `;
+IMPORTANTE: 
+1. Como o arquiteto exigiu "Gera Sugestões", você DEVE OBRIGATORIAMENTE usar o bloco \`\`\`suggestion para que o desenvolvedor aceite a alteração dentro do GitHub.
+2. Escape as quebras de linha do JSON (\`\\n\`).
+3. Se não houver problemas: { "feedback": [] }
+
+Diff:
+${diff}
+`;
 
   try {
     const completion = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [
-        { role: "system", content: "Você é um revisor de código técnico muito preciso que responde em português e no formato JSON solicitado." },
+        { role: "system", content: "Você responde estritamente em JSON. Sem Markdown fora da estrutura." },
         { role: "user", content: prompt }
       ],
       response_format: { type: "json_object" }
     });
 
-    const result = JSON.parse(completion.choices[0].message.content);
-    const comments = Array.isArray(result) ? result : result.comments || [];
-
-    if (comments.length === 0) {
-      console.log("IA não encontrou problemas significativos.");
+    const raw = completion.choices[0].message.content;
+    let result;
+    try {
+      result = JSON.parse(raw);
+    } catch (e) {
+      console.error("Erro no parse do JSON:", raw);
       return;
     }
 
-    console.log(`IA sugeriu ${comments.length} comentários.`);
+    const comments = Array.isArray(result.feedback) 
+      ? result.feedback 
+      : (Array.isArray(result) ? result : []);
 
-    // Em uma POC real, postaríamos os comentários via octokit.pulls.createReview
-    // Mas para simplificar a visualização inicial, vamos postar um comentário geral
-    let summaryMessage = "### 🤖 AI Code Review Summary\n\n";
-    comments.forEach(c => {
-      summaryMessage += `- **${c.file}:${c.line}**: ${c.message}\n`;
-    });
+    if (comments.length === 0) {
+      console.log("✅ Agente de Qualidade não encontrou problemas.");
+      return;
+    }
 
-    await octokit.issues.createComment({
-      owner,
-      repo,
-      issue_number: pull_number,
-      body: summaryMessage
-    });
+    console.log(`⚠️ Agente de Qualidade gerou ${comments.length} sugestões.`);
 
-    console.log("Resumo da revisão postado no GitHub.");
+    // 📍 COMENTÁRIOS INLINE FOCADOS EM "SUGGESTION"
+    const reviewComments = comments
+      .filter(c => c.file && c.line)
+      .map(c => ({
+        path: c.file.replace("./", ""),
+        line: c.line,
+        side: "RIGHT",
+        body: `🤖 **Análise do Agente de Qualidade**:\n\n${c.message}`
+      }));
+
+    if (reviewComments.length > 0) {
+      try {
+        await octokit.pulls.createReview({
+          owner,
+          repo,
+          pull_number,
+          event: "COMMENT",
+          comments: reviewComments
+        });
+        console.log("✅ Sugestões inline postadas com sucesso no GitHub.");
+      } catch (reviewError) {
+        console.log("❌ Falha na API Rest do GitHub para Inline Comments:", reviewError.message);
+        
+        let summaryMessage = "### 🤖 Agente de Qualidade (Resumo de Falhas)\n\n*Nota: As sugestões abaixo não puderam integrar nas linhas do arquivo.*\n\n";
+        comments.forEach(c => {
+          summaryMessage += `- **${c.file}:${c.line}**: \n${c.message}\n\n`;
+        });
+        await octokit.issues.createComment({ owner, repo, issue_number: pull_number, body: summaryMessage });
+      }
+    }
 
   } catch (error) {
-    console.error("Erro no processamento da IA:", error);
+    console.error("Erro no processamento:", error);
   }
 }
 
