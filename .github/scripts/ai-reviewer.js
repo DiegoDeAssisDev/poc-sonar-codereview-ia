@@ -44,17 +44,21 @@ A IA TEM MUITA DIFICULDADE EM ACERTAR NÚMEROS DE LINHAS. Para corrigir isso, vo
 4. O número real da linha = \`new_start\` + o número de linhas contadas (apenas as que começam com \` \` ou \`+\`).
 5. Se o erro estiver na exata primeira linha do bloco (aquela logo abaixo do \`@@\`), se ela for uma adição (\`+\`) ou contexto (\` \`), a linha é exatamente o \`new_start\`.
 
-Responda APENAS com JSON válido, sem markdown:
+Responda APENAS com JSON válido, sem markdown envolvente:
 
 {
   "feedback": [
     {
       "file": "lib/arquivo.dart",
       "line": 15,
-      "message": "comentário técnico focado em Flutter"
+      "message": "Comentário técnico focado em Flutter.\\n\\nPara facilitar, aplique a sugestão abaixo:\\n\\n\`\`\`suggestion\\n// Seu novo código ajustado aqui\\n\`\`\`"
     }
   ]
 }
+
+IMPORTANTE: 
+1. Use o bloco \`\`\`suggestion seguido pelo código corrigido e \`\`\` no final. Isso permite que o desenvolvedor clique em "Commit suggestion" diretamente no GitHub!
+2. A quebra de linha dentro da string do JSON ("message") deve ser escapada como \`\\n\`.
 
 Se não houver problemas:
 { "feedback": [] }
