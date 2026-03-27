@@ -4,6 +4,7 @@ const exec = require("child_process").execSync;
 
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+
 const [owner, repo] = process.env.GITHUB_REPOSITORY.split("/");
 const pull_number = Number(process.env.GITHUB_REF.split("/")[2]);
 
@@ -15,81 +16,140 @@ async function getDiff() {
   try {
     return exec(`git diff origin/${baseRef}...HEAD`, { encoding: "utf8" });
   } catch (error) {
-    console.error(`Erro ao pegar o diff contra ${baseRef}:`, error);
+    console.error(`Erro ao pegar diff:`, error);
     return "";
   }
 }
 
 async function runReview() {
-  console.log(`Iniciando revisão para a PR #${pull_number} em ${owner}/${repo}`);
+  console.log(`🚀 Review PR #${pull_number}`);
 
   const diff = await getDiff();
-  if (!diff) {
-    console.log("Nenhuma alteração encontrada para revisão.");
+
+  if (!diff || diff.trim().length === 0) {
+    console.log("Nenhuma alteração encontrada.");
     return;
   }
 
   const prompt = `
-  Você é um Desenvolvedor Senior Flutter e revisor de código Dart experiente.
-  Analise o seguinte Diff do Git de uma Pull Request e sugira melhorias.
-  
-  Foque em:
-  - Bugs óbvios ou problemas de segurança em Dart/Flutter.
-  - Melhores práticas de Flutter (Stateless vs Stateful, uso de BuildContext, etc).
-  - Clean Code, legibilidade e padrões de projeto (Provider, Bloc, GetX, etc).
-  - Performance (evitar builds desnecessários, const constructors).
+Você é um Desenvolvedor Senior Flutter.
 
-  Responda APENAS com um objeto JSON no seguinte formato:
-  [
+Analise o git diff abaixo (no formato Unified Diff) e gere sugestões de Code Review.
+
+# REGRA MATEMÁTICA CRÍTICA PARA NÚMERO DE LINHAS (Line Numbers):
+A IA TEM MUITA DIFICULDADE EM ACERTAR NÚMEROS DE LINHAS. Para corrigir isso, você deve seguir esta regra matemática estritamente:
+1. Encontre o cabeçalho do bloco (Hunk Header) mais próximo ACIMA da linha que você quer comentar. Exemplo: \`@@ -old_start,old_count +new_start,new_count @@\`
+2. Pegue o valor de \`new_start\` (o número logo após o sinal de \`+\`). Exemplo: em \`@@ -10,5 +15,6 @@\`, o \`new_start\` é 15.
+3. Conte quantas linhas existem DEPOIS do cabeçalho até chegar na linha do erro, EXCLUINDO as linhas que começam com \`-\` (deleções).
+4. O número real da linha = \`new_start\` + o número de linhas contadas (apenas as que começam com \` \` ou \`+\`).
+5. Se o erro estiver na exata primeira linha do bloco (aquela logo abaixo do \`@@\`), se ela for uma adição (\`+\`) ou contexto (\` \`), a linha é exatamente o \`new_start\`.
+
+Responda APENAS com JSON válido, sem markdown envolvente:
+
+{
+  "feedback": [
     {
-      "file": "caminho/do/arquivo.js",
-      "line": 10,
-      "message": "Sugestão de comentário aqui."
+      "file": "lib/arquivo.dart",
+      "line": 15,
+      "message": "Comentário técnico focado em Flutter.\\n\\nPara facilitar, aplique a sugestão abaixo:\\n\\n\`\`\`suggestion\\n// Seu novo código ajustado aqui\\n\`\`\`"
     }
   ]
+}
 
-  Git Diff:
-  ${diff}
-  `;
+IMPORTANTE: 
+1. Use o bloco \`\`\`suggestion seguido pelo código corrigido e \`\`\` no final. Isso permite que o desenvolvedor clique em "Commit suggestion" diretamente no GitHub!
+2. A quebra de linha dentro da string do JSON ("message") deve ser escapada como \`\\n\`.
+
+Se não houver problemas:
+{ "feedback": [] }
+
+Diff:
+${diff}
+`;
 
   try {
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: "gpt-4o-mini",
       messages: [
-        { role: "system", content: "Você é um revisor de código técnico muito preciso que responde em português e no formato JSON solicitado." },
+        {
+          role: "system",
+          content:
+            "Você responde apenas JSON válido e nunca adiciona texto fora do JSON."
+        },
         { role: "user", content: prompt }
       ],
       response_format: { type: "json_object" }
     });
 
-    const result = JSON.parse(completion.choices[0].message.content);
-    const comments = Array.isArray(result) ? result : result.comments || [];
+    const raw = completion.choices[0].message.content;
 
-    if (comments.length === 0) {
-      console.log("IA não encontrou problemas significativos.");
+    let result;
+    try {
+      result = JSON.parse(raw);
+    } catch (e) {
+      console.error("Erro parse JSON:", raw);
       return;
     }
 
-    console.log(`IA sugeriu ${comments.length} comentários.`);
+    const comments = Array.isArray(result.feedback)
+      ? result.feedback.map(c => ({
+        file: (c.file || "").replace("./", ""),
+        line: c.line || 1,
+        message: c.message || "Sem mensagem"
+      }))
+      : [];
 
-    // Em uma POC real, postaríamos os comentários via octokit.pulls.createReview
-    // Mas para simplificar a visualização inicial, vamos postar um comentário geral
-    let summaryMessage = "### 🤖 AI Code Review Summary\n\n";
+    if (comments.length === 0) {
+      console.log("✅ Nenhum problema encontrado.");
+      return;
+    }
+
+    console.log(`⚠️ ${comments.length} comentários encontrados`);
+
+    // =========================
+    // 💬 1. COMENTÁRIO GERAL
+    // =========================
+    let summary = "### 🤖 AI Code Review\n\n";
+
     comments.forEach(c => {
-      summaryMessage += `- **${c.file}:${c.line}**: ${c.message}\n`;
+      summary += `- **${c.file}:${c.line}** → ${c.message}\n`;
     });
 
     await octokit.issues.createComment({
       owner,
       repo,
       issue_number: pull_number,
-      body: summaryMessage
+      body: summary
     });
 
-    console.log("Resumo da revisão postado no GitHub.");
+    console.log("✅ Comentário geral enviado");
+
+    // =========================
+    // 📍 2. COMENTÁRIOS INLINE
+    // =========================
+    const reviewComments = comments
+      .filter(c => c.file && c.line)
+      .map(c => ({
+        path: c.file,
+        line: c.line,
+        side: "RIGHT",
+        body: `🤖 ${c.message}`
+      }));
+
+    if (reviewComments.length > 0) {
+      await octokit.pulls.createReview({
+        owner,
+        repo,
+        pull_number,
+        event: "COMMENT",
+        comments: reviewComments
+      });
+
+      console.log("✅ Comentários inline enviados");
+    }
 
   } catch (error) {
-    console.error("Erro no processamento da IA:", error);
+    console.error("Erro geral:", error);
   }
 }
 
