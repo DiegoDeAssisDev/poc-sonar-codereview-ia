@@ -34,16 +34,24 @@ async function runReview() {
   const prompt = `
 Você é um Desenvolvedor Senior Flutter.
 
-Analise o diff abaixo e gere sugestões.
+Analise o git diff abaixo (no formato Unified Diff) e gere sugestões de Code Review.
 
-Responda APENAS com JSON válido:
+# REGRA MATEMÁTICA CRÍTICA PARA NÚMERO DE LINHAS (Line Numbers):
+A IA TEM MUITA DIFICULDADE EM ACERTAR NÚMEROS DE LINHAS. Para corrigir isso, você deve seguir esta regra matemática estritamente:
+1. Encontre o cabeçalho do bloco (Hunk Header) mais próximo ACIMA da linha que você quer comentar. Exemplo: \`@@ -old_start,old_count +new_start,new_count @@\`
+2. Pegue o valor de \`new_start\` (o número logo após o sinal de \`+\`). Exemplo: em \`@@ -10,5 +15,6 @@\`, o \`new_start\` é 15.
+3. Conte quantas linhas existem DEPOIS do cabeçalho até chegar na linha do erro, EXCLUINDO as linhas que começam com \`-\` (deleções).
+4. O número real da linha = \`new_start\` + o número de linhas contadas (apenas as que começam com \` \` ou \`+\`).
+5. Se o erro estiver na exata primeira linha do bloco (aquela logo abaixo do \`@@\`), se ela for uma adição (\`+\`) ou contexto (\` \`), a linha é exatamente o \`new_start\`.
+
+Responda APENAS com JSON válido, sem markdown:
 
 {
   "feedback": [
     {
       "file": "lib/arquivo.dart",
-      "line": 10,
-      "message": "comentário"
+      "line": 15,
+      "message": "comentário técnico focado em Flutter"
     }
   ]
 }
